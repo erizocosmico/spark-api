@@ -2,10 +2,45 @@ language: scala
 scala:
    - 2.11.11
 jdk:
-  - openjdk8
   - jdk8
+  - openjdk8
+
 matrix:
   fast_finish: true
+
+  include:
+    - language: python
+      python: 2.7
+
+      install:
+        - sbt assembly
+        - mkdir -p python/jars
+        - cp target/**/spark-api-assembly-*.jar python/jars
+        - cd python
+        - pip install -r requirements.txt
+
+      script:
+        - python -m unittest discover -v
+
+      after_success:
+        - echo "" # noop to avoid executing the one from the main build
+
+    - language: python
+      python: 3.6
+
+      install:
+        - sbt assembly
+        - mkdir -p python/jars
+        - cp target/**/spark-api-assembly-*.jar python/jars
+        - cd python
+        - pip install -r requirements.txt
+
+      script:
+        - python -m unittest discover -v
+
+      after_success:
+        - echo "" # noop to avoid executing the one from the main build
+
 script:
   - sbt ++$TRAVIS_SCALA_VERSION jacoco:cover
 after_success:
