@@ -9,7 +9,7 @@ import org.apache.spark.sql.catalyst.rules.Rule
 import org.apache.spark.sql.execution.datasources.LogicalRelation
 import org.apache.spark.sql.types._
 
-class SquashGitRelationJoin extends Rule[LogicalPlan] {
+object SquashGitRelationJoin extends Rule[LogicalPlan] {
   def apply(plan: LogicalPlan): LogicalPlan = plan transformUp {
     // Joins are only applicable per repository, so we can push down completely the Join into the datasource
     case q@Join(_, _, _, _) =>
@@ -21,22 +21,28 @@ class SquashGitRelationJoin extends Rule[LogicalPlan] {
       jd match {
         case JoinData(feo, jc, pe, attributes, Some(sqlc), _) =>
           val fe = feo.getOrElse(EqualTo(Literal(false, BooleanType), Literal(true, BooleanType)))
-          Project(pe,
-            Filter(fe,
-              LogicalRelation(
-                GitRelation(sqlc, GitOptimizer.attributesToSchema(attributes), jc), attributes, None)))
+          val filter = Filter(fe,
+            LogicalRelation(
+              GitRelation(sqlc, GitOptimizer.attributesToSchema(attributes), jc), attributes, None))
+          if (pe.nonEmpty) {
+            Project(pe, filter)
+          } else {
+            filter
+          }
         case _ => q
       }
+
+    case q@Project(list, Project(childList, child)) =>
+      Project(list ++ childList, child)
   }
 }
 
-case class JoinData(
-                     filterExpression: Option[Expression] = None,
-                     joinCondition: Option[Expression] = None,
-                     projectExpressions: Seq[NamedExpression] = Nil,
-                     attributes: Seq[AttributeReference] = Nil,
-                     sqlContext: Option[SQLContext] = None,
-                     valid: Boolean = false)
+case class JoinData(filterExpression: Option[Expression] = None,
+                    joinCondition: Option[Expression] = None,
+                    projectExpressions: Seq[NamedExpression] = Nil,
+                    attributes: Seq[AttributeReference] = Nil,
+                    sqlContext: Option[SQLContext] = None,
+                    valid: Boolean = false)
 
 object GitOptimizer extends Logging {
   private val supportedJoinTypes: Seq[JoinType] = Inner :: Nil
@@ -100,7 +106,7 @@ object GitOptimizer extends Logging {
     // Reduce all filter expressions into one
     jd.reduce((jd1, jd2) => {
       // get all filter expressions
-      val exprOpt: Option[Expression] = mixExpressions(jd1.filterExpression, jd2.filterExpression, Or)
+      val exprOpt: Option[Expression] = mixExpressions(jd1.filterExpression, jd2.filterExpression, And)
       // get all join conditions
       val joinConditionOpt: Option[Expression] = mixExpressions(jd1.joinCondition, jd2.joinCondition, And)
 
@@ -120,13 +126,11 @@ object GitOptimizer extends Logging {
         jd1.valid && jd2.valid
       )
     })
-
   }
 
-  private def mixExpressions(
-                              l: Option[Expression],
-                              r: Option[Expression],
-                              joinFunction: (Expression, Expression) => Expression):
+  private def mixExpressions(l: Option[Expression],
+                             r: Option[Expression],
+                             joinFunction: (Expression, Expression) => Expression):
   Option[Expression] = {
     (l, r) match {
       case (Some(expr1), Some(expr2)) => Some(joinFunction(expr1, expr2))
@@ -143,5 +147,5 @@ object GitOptimizer extends Logging {
     } map (_.asInstanceOf[LogicalRelation])
 
   def attributesToSchema(attributes: Seq[AttributeReference]): StructType =
-    StructType(attributes.map((a: Attribute) => StructField(a.name, a.dataType, a.nullable, a.metadata)) toArray)
+    StructType(attributes.map((a: Attribute) => StructField(a.name, a.dataType, a.nullable, a.metadata)).toArray)
 }

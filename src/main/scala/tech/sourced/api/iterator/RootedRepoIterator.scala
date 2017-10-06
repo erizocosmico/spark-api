@@ -2,33 +2,80 @@ package tech.sourced.api.iterator
 
 import org.apache.spark.sql.Row
 import org.eclipse.jgit.lib.{Repository, StoredConfig}
-import tech.sourced.api.util.GitUrlsParser
+import tech.sourced.api.util.{CompiledExpression, GitUrlsParser}
 
 import scala.collection.JavaConverters.collectionAsScalaIterableConverter
 
-// TODO implement filter logic
-abstract class RootedRepoIterator[T](requiredColumns: Array[String], repo: Repository) extends Iterator[Row] {
+abstract class RootedRepoIterator[T](finalColumns: Array[String],
+                                     columns: Array[String],
+                                     repo: Repository,
+                                     prevIter: RootedRepoIterator[_],
+                                     filters: Seq[CompiledExpression]) extends Iterator[Row] {
 
-  private var internalIterator: Iterator[T] = _
+  type RawRow = Map[String, () => Any]
 
-  protected def loadIterator(): Iterator[T]
+  private var iter: Iterator[T] = _
+  protected var currentRow: RawRow = _
 
-  protected def mapColumns(obj: T): Map[String, () => Any]
+  protected def loadIterator(filters: Seq[CompiledExpression]): Iterator[T]
+
+  protected def getFilters: Seq[CompiledExpression] = filters
+
+  protected def mapColumns(obj: T): RawRow
 
   override def hasNext: Boolean = {
-    if (internalIterator == null) {
-      internalIterator = loadIterator()
+    if (prevIter == null) {
+      if (iter == null) {
+        iter = loadIterator(getFilters)
+      }
+
+      iter.hasNext
+    } else if (iter == null) {
+      if (prevIter != null && !prevIter.hasNext) {
+        return false
+      }
+
+      currentRow = prevIter.nextRaw
+      iter = loadIterator(getFilters)
+      iter.hasNext
+    } else if (!iter.hasNext) {
+      if (prevIter != null && !prevIter.hasNext) {
+        return false
+      }
+
+      currentRow = prevIter.nextRaw
+      iter = loadIterator(getFilters)
+      iter.hasNext
+    } else {
+      true
+    }
+  }
+
+  override def next: Row = {
+    val mappedValues = if (currentRow != null) {
+      currentRow ++ mapColumns(iter.next)
+    } else {
+      mapColumns(iter.next)
     }
 
-    internalIterator.hasNext
+    val values = finalColumns.map(c => mappedValues(c)())
+    Row(values: _*)
   }
 
-  override def next(): Row = {
-    val mappedValues: Map[String, () => Any] = mapColumns(internalIterator.next())
-    Row(requiredColumns.map(c => mappedValues(c)()): _*)
-  }
 
-  protected def getRepositoryId(uuid: String): Option[String] = {
+  def nextRaw: RawRow = {
+    val row = mapColumns(iter.next())
+    if (currentRow != null) {
+      currentRow ++ row
+    } else {
+      row
+    }
+  }
+}
+
+object RootedRepo {
+
+  private[iterator] def getRepositoryId(repo: Repository, uuid: String): Option[String] = {
     // TODO maybe a cache here could improve performance
     val c: StoredConfig = repo.getConfig
     c.getSubsections("remote").asScala.find(i => i == uuid) match {
@@ -37,7 +84,7 @@ abstract class RootedRepoIterator[T](requiredColumns: Array[String], repo: Repos
     }
   }
 
-  protected def getRepositoryUUID(id: String): Option[String] = {
+  private[iterator] def getRepositoryUUID(repo: Repository, id: String): Option[String] = {
     // TODO maybe a cache here could improve performance
     val c: StoredConfig = repo.getConfig
     c.getSubsections("remote").asScala.find(uuid => {
@@ -48,12 +95,13 @@ abstract class RootedRepoIterator[T](requiredColumns: Array[String], repo: Repos
     })
   }
 
-  protected def parseRef(ref: String): (String, String) = {
+  private[iterator] def parseRef(repo: Repository, ref: String): (String, String) = {
     val split: Array[String] = ref.split("/")
     val uuid: String = split.last
-    val repoId: String = this.getRepositoryId(uuid).get
+    val repoId: String = getRepositoryId(repo, uuid).get
     val refName: String = split.init.mkString("/")
 
     (repoId, refName)
   }
+
 }

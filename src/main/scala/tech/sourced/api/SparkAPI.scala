@@ -35,6 +35,9 @@ import org.apache.spark.sql.{DataFrame, SparkSession}
   */
 class SparkAPI(session: SparkSession) {
 
+  session.registerUDFs()
+  session.experimental.extraOptimizations = Seq(SquashGitRelationJoin)
+
   /**
     * Returns a DataFrame with the data about the repositories found at
     * the specified repositories path in the form of siva files.
@@ -136,7 +139,6 @@ object SparkAPI {
     * @return SparkAPI instance
     */
   def apply(session: SparkSession, repositoriesPath: String) = {
-    session.registerUDFs()
     new SparkAPI(session)
       .setRepositoriesPath(repositoriesPath)
   }

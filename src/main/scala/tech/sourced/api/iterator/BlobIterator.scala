@@ -9,7 +9,7 @@ import org.eclipse.jgit.lib.{ObjectId, ObjectReader, Repository}
 import org.eclipse.jgit.revwalk.RevWalk
 import org.eclipse.jgit.treewalk.TreeWalk
 import org.slf4j.Logger
-import tech.sourced.api.util.CompiledFilter
+import tech.sourced.api.util.CompiledExpression
 
 import scala.collection.JavaConverters._
 
@@ -21,10 +21,14 @@ import scala.collection.JavaConverters._
   * @param repo
   * @param filters
   */
-class BlobIterator(requiredColumns: Array[String], repo: Repository, filters: Array[CompiledFilter])
-  extends RootedRepoIterator[CommitTree](requiredColumns, repo) with Logging {
+class BlobIterator(finalColumns: Array[String],
+                   columns: Array[String],
+                   repo: Repository,
+                   prevIter: RootedRepoIterator[_],
+                   filters: Seq[CompiledExpression])
+  extends RootedRepoIterator[CommitTree](finalColumns, columns, repo, prevIter, filters) with Logging {
 
-  override protected def loadIterator(): Iterator[CommitTree] = {
+  override protected def loadIterator(filters: Seq[CompiledExpression]): Iterator[CommitTree] = {
     var refs = new Git(repo).branchList().call().asScala.filter(!_.isSymbolic)
 
     val filtered = filters.toIterator
@@ -32,7 +36,7 @@ class BlobIterator(requiredColumns: Array[String], repo: Repository, filters: Ar
       .flatMap {
         case ("reference_name", filteredRefs) =>
           refs = refs.filter { ref =>
-            val (_, refName) = parseRef(ref.getName)
+            val (_, refName) = RootedRepo.parseRef(repo, ref.getName)
             filteredRefs.contains(refName)
           }
           log.debug(s"Iterating all ${refs.size} refs")
@@ -157,7 +161,7 @@ class JGitBlobIterator[T <: CommitTree](commitTree: T, log: Logger) extends Iter
       return false
     }
 
-    if (commitTree.tree.getObjectReader().has(commitTree.tree.getObjectId(0))) {
+    if (commitTree.tree.getObjectReader.has(commitTree.tree.getObjectId(0))) {
       true
     } else { // tree hasNext, but blob obj is missing
       log.debug(s"Skip non-existing ${commitTree.tree.getObjectId(0).name()} ")

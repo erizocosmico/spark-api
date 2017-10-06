@@ -3,7 +3,7 @@ package tech.sourced.api.iterator
 import org.apache.spark.{InterruptibleIterator, TaskContext}
 import org.apache.spark.sql.Row
 
-class CleanupIterator[T](it: RootedRepoIterator[T], cleanup: => Unit)
+class CleanupIterator(it: Iterator[Row], cleanup: => Unit)
   extends InterruptibleIterator[Row](TaskContext.get(), it) {
 
   override def hasNext: Boolean = {
