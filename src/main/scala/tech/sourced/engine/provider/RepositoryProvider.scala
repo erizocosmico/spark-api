@@ -129,7 +129,7 @@ class RepositoryProvider(val localPath: String, val skipCleanup: Boolean = false
 
     val fs = remotePath.getFileSystem(conf)
 
-    val (localSivaPath, isLocalSivaFile) = if (!path.startsWith("file:")) {
+    val (localSivaPath, isLocalSivaFile) = if (!RepositoryProvider.isLocalFile(path)) {
       // if `remotePath` does not exist locally, copy it
       val localSivaPath = new Path(
         localPath,
@@ -146,7 +146,7 @@ class RepositoryProvider(val localPath: String, val skipCleanup: Boolean = false
     } else {
       // if `remotePath` already exists locally, don't copy anything
       // just use the given siva file
-      (new Path(path.substring(5)), true)
+      (new Path(RepositoryProvider.removeFilePrefix(path)), true)
     }
 
     if (!fs.exists(localUnpackedPath)) {
@@ -198,6 +198,24 @@ object RepositoryProvider {
 
     provider
   }
+
+  /**
+    * Reports whether a file is local (that is, starts with "file:").
+    *
+    * @param path path of the file
+    * @return whether it's local or not
+    */
+  private def isLocalFile(path: String): Boolean = path.startsWith("file:")
+
+  /**
+    * Removes the "file:" prefix of a local file.
+    * NOTE: this method does not check that such prefix exist, and it should be checked
+    * before using it.
+    *
+    * @param path local file path
+    * @return file path without file prefix
+    */
+  private[provider] def removeFilePrefix(path: String): String = path.substring("file:".length)
 
   val temporalLocalFolder = "processing-repositories"
   val temporalSivaFolder = "siva-files"

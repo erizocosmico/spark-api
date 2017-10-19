@@ -55,14 +55,19 @@ class RepositoryProviderSpec extends FlatSpec with Matchers with BaseSivaSpec wi
     assert(sivaFilesExist.forall(_ == true))
   }
 
-  "RepositoryProvider" should "delete siva file with skipCleanup = false" in {
+  "RepositoryProvider" should "delete siva file with skipCleanup = false if" +
+    " it doesn't start with file:" in {
     val prov = SivaRDDProvider(ss.sparkContext)
 
     val sivaRDD = prov.get(resourcePath)
 
     val sivaFilesExist = sivaRDD.map(pds => {
       val provider = new RepositoryProvider("/tmp/two")
-      val _ = provider.genRepository(pds.getConfiguration, pds.getPath(), "/tmp/two")
+      val _ = provider.genRepository(
+        pds.getConfiguration,
+        RepositoryProvider.removeFilePrefix(pds.getPath()),
+        "/tmp/two"
+      )
       provider.close(pds.getPath())
       val localSivaPath = new Path("/tmp/two",
         new Path(RepositoryProvider.temporalSivaFolder, new Path(pds.getPath()).getName))
@@ -71,6 +76,24 @@ class RepositoryProviderSpec extends FlatSpec with Matchers with BaseSivaSpec wi
 
     assert(sivaFilesExist.length == 3)
     assert(sivaFilesExist.forall(!_))
+  }
+
+  "RepositoryProvider" should "not delete siva file with skipCleanup = false if" +
+    " it starts with file:" in {
+    val prov = SivaRDDProvider(ss.sparkContext)
+
+    val sivaRDD = prov.get(resourcePath)
+
+    val sivaFilesExist = sivaRDD.map(pds => {
+      val provider = new RepositoryProvider("/tmp/two")
+      val _ = provider.genRepository(pds.getConfiguration, pds.getPath(), "/tmp/two")
+      provider.close(pds.getPath())
+      val localSivaPath = new Path(RepositoryProvider.removeFilePrefix(pds.getPath()))
+      FileSystem.get(pds.getConfiguration).exists(localSivaPath)
+    }).collect()
+
+    assert(sivaFilesExist.length == 3)
+    assert(sivaFilesExist.forall(_ == true))
   }
 
   "RepositoryProvider" should "cleanup unpacked files when nobody else is using the repo" in {
