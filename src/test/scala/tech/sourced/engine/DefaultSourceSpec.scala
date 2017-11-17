@@ -94,6 +94,11 @@ class DefaultSourceSpec extends FlatSpec with Matchers with BaseSivaSpec with Ba
     storageLevels.foreach(engine.getRepositories.persist(_).count)
   }
 
+  it should "get all tree entries" in {
+    val df = engine.getRepositories.getReferences.getCommits.getTreeEntries
+    df.count() should be(304362)
+  }
+
   "Convenience for getting files" should "work without reading commits" in {
     val spark = ss
     import spark.implicits._
