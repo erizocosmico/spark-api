@@ -21,7 +21,7 @@ class RepositoryIteratorSpec extends FlatSpec with BaseRootedRepoIterator {
     )
   }
 
-  "RepositoryIterator" should "return only specified columns" in {
+  it should "return only specified columns" in {
     testIterator(
       new RepositoryIterator(Array("id", "is_fork"), _, Seq()), {
         case (0, row) =>
@@ -35,7 +35,7 @@ class RepositoryIteratorSpec extends FlatSpec with BaseRootedRepoIterator {
     )
   }
 
-  "RepositoryIterator" should "apply passed filters" in {
+  it should "apply passed filters" in {
     testIterator(
       new RepositoryIterator(
         Array("id", "is_fork"),
