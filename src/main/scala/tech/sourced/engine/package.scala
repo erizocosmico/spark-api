@@ -82,7 +82,7 @@ package object engine {
 
     import df.sparkSession.implicits._
 
-    implicit val session = df.sparkSession
+    implicit val session: SparkSession = df.sparkSession
 
     /**
       * Returns a new [[org.apache.spark.sql.DataFrame]] with the product of joining the
@@ -122,7 +122,8 @@ package object engine {
       val commitsDf = getDataSource("commits", df.sparkSession)
       commitsDf.join(refsIdsDf, refsIdsDf("repository_id") === commitsDf("repository_id") &&
         commitsDf("reference_name") === refsIdsDf("name"))
-        .drop(refsIdsDf("name")).drop(refsIdsDf("repository_id"))
+        .drop(refsIdsDf("name"))
+        .drop(refsIdsDf("repository_id"))
     }
 
     /**
@@ -159,10 +160,14 @@ package object engine {
       */
     def getTreeEntries: DataFrame = {
       checkCols(df, "index", "hash") // references also has hash, index makes sure that is commits
-      val commitsDf = df.select("hash")
+      val commitsDf = df.select("hash", "repository_id", "reference_name")
       val entriesDf = getDataSource("tree_entries", df.sparkSession)
-      entriesDf.join(commitsDf, entriesDf("commit_hash") === commitsDf("hash"))
-        .drop($"hash")
+      entriesDf.join(commitsDf, entriesDf("commit_hash") === commitsDf("hash")
+        && entriesDf("repository_id") === commitsDf("repository_id")
+        && entriesDf("reference_name") === commitsDf("reference_name"))
+        .drop(commitsDf("hash"))
+        .drop(commitsDf("repository_id"))
+        .drop(commitsDf("reference_name"))
     }
 
     /**
@@ -181,10 +186,21 @@ package object engine {
       if (!df.columns.contains("blob")) {
         df.getTreeEntries.getBlobs
       } else {
-        val treesDf = df.select("path", "blob")
-        val blobsDf = getDataSource("blobs", df.sparkSession)
-        blobsDf.join(treesDf, treesDf("blob") === blobsDf("blob_id"))
-          .drop($"blob")
+        val treesDf = df.select("blob", "commit_hash", "reference_name", "repository_id")
+        val blobsDf = if (!Engine.hackMetadata) {
+          getDataSource("blobs", df.sparkSession)
+        } else {
+          getDataSource("blobs", df.sparkSession)
+        }
+
+        blobsDf.join(treesDf, treesDf("blob") === blobsDf("blob_id")
+          && treesDf("commit_hash") === blobsDf("commit_hash")
+          && treesDf("reference_name") === blobsDf("reference_name")
+          && treesDf("repository_id") === blobsDf("repository_id"))
+          .drop(treesDf("blob"))
+          .drop(treesDf("commit_hash"))
+          .drop(treesDf("reference_name"))
+          .drop(treesDf("repository_id"))
       }
     }
 
@@ -348,9 +364,7 @@ package object engine {
     * @return dataframe for the given table
     */
   private[engine] def getDataSource(table: String, session: SparkSession): DataFrame =
-    session.read.format("tech.sourced.engine.DefaultSource")
-      .option("table", table)
-      .load(session.sqlContext.getConf(repositoriesPathKey))
+    session.table(table)
 
   /**
     * Ensures the given [[org.apache.spark.sql.DataFrame]] contains some required columns.

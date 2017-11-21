@@ -35,10 +35,45 @@ import scala.collection.JavaConversions.asScalaBuffer
   * @constructor creates a Engine instance with the given Spark session.
   * @param session Spark session to be used
   */
-class Engine(session: SparkSession) {
+class Engine(session: SparkSession, repositoriesPath: String) {
 
+  this.setRepositoriesPath(repositoriesPath)
   session.registerUDFs()
   session.experimental.extraOptimizations = Seq(SquashGitRelationJoin)
+  DefaultSource.register(session)
+
+  def saveMetadataTo(dburl: String,
+                     globalOptions: Map[String, String],
+                     tableProvider: String => String): Unit = {
+    Engine.metadataTables.foreach(table => {
+      val opts = globalOptions ++ Seq("url" -> dburl, "dbtable" -> tableProvider(table))
+      val writer = session.table(table).write.format("jdbc")
+      opts
+        .foldLeft(writer) {
+          case (w, (k, v)) => w.option(k, v)
+        }
+        .save()
+    })
+  }
+
+  def fromMetadata(dburl: String,
+                   globalOptions: Map[String, String],
+                   tableProvider: String => String): Engine = {
+    Engine.metadataTables.foreach(table => {
+      val opts = globalOptions ++ Seq("url" -> dburl, "dbtable" -> tableProvider(table))
+      val reader = session.read.format("jdbc")
+      opts
+        .foldLeft(reader) {
+          case (r, (k, v)) => r.option(k, v)
+        }
+        .load()
+        .createOrReplaceTempView(table)
+    })
+
+    Engine.hackMetadata = true
+
+    this
+  }
 
   /**
     * Returns a DataFrame with the data about the repositories found at
@@ -181,7 +216,11 @@ object Engine {
     * @return Engine instance
     */
   def apply(session: SparkSession, repositoriesPath: String): Engine = {
-    new Engine(session)
-      .setRepositoriesPath(repositoriesPath)
+    hackMetadata = false
+    new Engine(session, repositoriesPath)
   }
+
+  val metadataTables = Seq("repositories", "references", "commits", "tree_entries")
+
+  var hackMetadata = false
 }

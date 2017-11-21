@@ -20,6 +20,7 @@ libraryDependencies += bblfsh % Compile
 libraryDependencies += commonsIO % Compile
 libraryDependencies += commonsPool % Compile
 libraryDependencies += enry % Compile
+libraryDependencies += "org.postgresql" % "postgresql" % "42.1.4" % Compile
 
 testOptions in Test += Tests.Argument(TestFrameworks.ScalaTest, "-oUT")
 

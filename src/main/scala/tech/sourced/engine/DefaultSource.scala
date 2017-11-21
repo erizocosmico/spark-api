@@ -15,10 +15,10 @@ import tech.sourced.engine.util.Filter
   */
 class DefaultSource extends RelationProvider with DataSourceRegister {
 
-  /** @inheritdoc */
+  /** @inheritdoc*/
   override def shortName: String = "git"
 
-  /** @inheritdoc */
+  /** @inheritdoc*/
   override def createRelation(sqlContext: SQLContext,
                               parameters: Map[String, String]): BaseRelation = {
     val table = parameters.getOrElse(
@@ -46,6 +46,19 @@ class DefaultSource extends RelationProvider with DataSourceRegister {
 object DefaultSource {
   val tableNameKey = "table"
   val pathKey = "path"
+
+  val name = "tech.sourced.engine"
+
+  val tables = Seq("repositories", "references", "commits", "tree_entries", "blobs")
+
+  def register(session: SparkSession): Unit = {
+    tables.foreach(table => {
+      session.read.format(name)
+        .option(tableNameKey, table)
+        .load(session.sqlContext.getConf(repositoriesPathKey))
+        .createOrReplaceTempView(table)
+    })
+  }
 }
 
 /**
