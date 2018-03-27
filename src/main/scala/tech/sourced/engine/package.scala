@@ -50,17 +50,20 @@ package object engine {
     */
   private[engine] val SkipCleanupKey = "spark.tech.sourced.engine.cleanup.skip"
 
+  val DBUrlKey = "spark.tech.sourced.engine.dburl"
+  val DBUserKey = "spark.tech.sourced.engine.dbuser"
+  val DBPasswordKey = "spark.tech.sourced.engine.dbpass"
+
   // DataSource names
   val DefaultSourceName: String = "tech.sourced.engine"
-  val MetadataSourceName: String = "tech.sourced.engine.MetadataSource"
 
   // Table names
   val RepositoriesTable: String = "repositories"
-  val ReferencesTable: String = "references"
+  val RemotesTable: String = "remotes"
+  val ReferencesTable: String = "refs"
   val CommitsTable: String = "commits"
   val TreeEntriesTable: String = "tree_entries"
   val BlobsTable: String = "blobs"
-  val RepositoryHasCommitsTable: String = "repository_has_commits"
 
 
   // The keys RepositoriesPathKey, bblfshHostKey, bblfshPortKey and SkipCleanupKey must
@@ -81,26 +84,6 @@ package object engine {
         customUDF.name,
         customUDF(session)
       ))
-    }
-
-    /**
-      * Returns the number of executors that are active right now.
-      *
-      * @return number of active executors
-      */
-    def currentActiveExecutors(): Int = {
-      val sc = session.sparkContext
-      val driver = sc.getConf.get("spark.driver.host")
-      val executors = sc.getExecutorMemoryStatus
-        .keys
-        .filter(ex => ex.split(":").head != driver)
-        .toArray
-        .distinct
-        .length
-
-      // If there are no executors, it means it's a local job
-      // so there's just one node to get the data from.
-      if (executors > 0) executors else 1
     }
 
   }
@@ -138,30 +121,17 @@ package object engine {
       */
     def getReferences: DataFrame = {
       checkCols(df, "id")
-      val reposIdsDf = df.select($"id")
       getDataSource(ReferencesTable, df.sparkSession)
-        .join(reposIdsDf, $"repository_id" === $"id")
+        .join(df, $"repository_id" === $"id")
         .drop($"id")
     }
 
-    /**
-      * Returns a new [[org.apache.spark.sql.DataFrame]] with only remote references in it.
-      * If the DataFrame contains repository data it will automatically get the references for
-      * those repositories.
-      *
-      * {{{
-      * val remoteRefs = reposDf.getRemoteReferences
-      * val remoteRefs2 = reposDf.getReferences.getRemoteReferences
-      * }}}
-      *
-      * @return
-      */
-    def getRemoteReferences: DataFrame = {
-      if (df.columns.contains("is_remote")) {
-        df.filter(df("is_remote") === true)
-      } else {
-        df.getReferences.getRemoteReferences
-      }
+    def getRemotes: DataFrame = {
+      checkCols(df, "id")
+
+      getDataSource(RemotesTable, df.sparkSession)
+        .join(df, $"repository_id" === $"id")
+        .drop($"id")
     }
 
     /**
@@ -185,9 +155,13 @@ package object engine {
       * @return new DataFrame containing also commits data.
       */
     def getCommits: DataFrame = {
-      checkCols(df, "repository_id")
+      checkCols(df, "name", "hash")
+      getDataSource(CommitsTable, df.sparkSession)
+        .join(df, )
+        .drop(df("name")).drop(df("hash"))
+      df.join(commitsDf, )
       val refsIdsDf = df.select($"name", $"repository_id")
-      val commitsDf = getDataSource(CommitsTable, df.sparkSession)
+
       commitsDf.join(refsIdsDf, refsIdsDf("repository_id") === commitsDf("repository_id") &&
         commitsDf("reference_name") === refsIdsDf("name"))
         .drop(refsIdsDf("name")).drop(refsIdsDf("repository_id"))
@@ -467,8 +441,12 @@ package object engine {
     * @param session spark session
     * @return dataframe for the given table
     */
-  private[engine] def getDataSource(table: String, session: SparkSession): DataFrame =
-    session.table(table)
+  private[engine] def getDataSource(table: String, session: SparkSession): DataFrame = {
+    val props = new java.util.Properties()
+    props.put("user", session.conf.get(DBUserKey, ""))
+    props.put("password", session.conf.get(DBPasswordKey, ""))
+    session.read.jdbc(session.conf.get(DBUrlKey), table, props)
+  }
 
   /**
     * Ensures the given [[org.apache.spark.sql.DataFrame]] contains some required columns.
